@@ -676,6 +676,46 @@ TEST_IMPL(spawn_same_stdout_stderr) {
 }
 
 
+TEST_IMPL(spawn_closed_process_io) {
+  int r;
+  uv_pipe_t in;
+  uv_write_t write_req;
+  uv_buf_t buf;
+  uv_stdio_container_t stdio[2];
+  uv_tty_t stdin;
+  char buffer[] = "hello-from-spawn_stdin";
+
+  r = uv_tty_init(uv_default_loop(), &stdin, 0, 1);
+  ASSERT(r == 0);
+  uv_close((uv_handle_t*)&stdin, close_cb);
+
+  init_process_options("spawn_helper1", exit_cb);
+
+  uv_pipe_init(uv_default_loop(), &in, 0);
+  options.stdio = stdio;
+  options.stdio[0].flags = UV_CREATE_PIPE | UV_READABLE_PIPE;
+  options.stdio[0].data.stream = (uv_stream_t*)&in;
+  options.stdio_count = 1;
+
+  r = uv_spawn(uv_default_loop(), &process, options);
+  ASSERT(r == 0);
+
+  buf.base = buffer;
+  buf.len = sizeof(buffer);
+  r = uv_write(&write_req, (uv_stream_t*)&in, &buf, 1, write_cb);
+  ASSERT(r == 0);
+
+  r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+  ASSERT(r == 0);
+
+  ASSERT(exit_cb_called == 1);
+  ASSERT(close_cb_called == 3); /* process, main stdin, child stdin */
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
 TEST_IMPL(kill) {
   int r;
   uv_err_t err;
